@@ -40,6 +40,7 @@ try:
   import stat
   import time
   import traceback
+  from math import floor
 except ImportError, e:
   msg = "Error: Failed to load one of the required Python modules! (%s)\n"
   sys.stderr.write(msg % str(e))
@@ -52,10 +53,6 @@ except ImportError:
   sys.stderr.write("Error: The Python FUSE binding isn't installed!\n" + \
       "If you're on Ubuntu try running `sudo apt-get install python-fuse'.\n")
   sys.exit(1)
-
-# Local modules that are mostly useful for debugging.
-from my_formats import format_size, format_timespan
-from get_memory_usage import get_memory_usage
 
 def main(): # {{{1
   """
@@ -155,6 +152,7 @@ class DedupFS(fuse.Fuse): # {{{1
       self.parser.add_option('--no-transactions', dest='use_transactions', action='store_false', default=True, help="don't use transactions when making multiple related changes, this might make the file system faster or slower (?)")
       self.parser.add_option('--nosync', dest='synchronous', action='store_false', default=True, help="disable SQLite's normal synchronous behavior which guarantees that data is written to disk immediately, because it slows down the file system too much (this means you might lose data when the mount point isn't cleanly unmounted)")
       self.parser.add_option('--nogc', dest='gc_enabled', action='store_false', default=True, help="disable the periodic garbage collection because it degrades performance (only do this when you've got disk space to waste or you know that nothing will be be deleted from the file system, which means little to no garbage will be produced)")
+      self.parser.add_option('--testmem', help="determine allocable memory amount")
       self.parser.add_option('--verify-writes', dest='verify_writes', action='store_true', default=False, help="after writing a new data block to the database, check that the block was written correctly by reading it back again and checking for differences")
 
       # Dynamically check for supported hashing algorithms.
@@ -1209,6 +1207,55 @@ except ImportError:
 
 # }}}1
 
+# my_formats
+def format_timespan(seconds): # {{{1
+  """
+  Format a timespan in seconds as a human-readable string.
+  """
+  result = []
+  units = [('day', 60 * 60 * 24), ('hour', 60 * 60), ('minute', 60), ('second', 1)]
+  for name, size in units:
+    if seconds >= size:
+      count = seconds / size
+      seconds %= size
+      result.append('%i %s%s' % (count, name, floor(count) != 1 and 's' or ''))
+  if result == []:
+    return 'less than a second'
+  if len(result) == 1:
+    return result[0]
+  else:
+    return ', '.join(result[:-1]) + ' and ' + result[-1]
+
+def format_size(nbytes):
+  """
+  Format a byte count as a human-readable file size.
+  """
+  return nbytes < 1024 and '%i bytes' % nbytes \
+      or nbytes < (1024 ** 2) and __round(nbytes, 1024, 'KB') \
+      or nbytes < (1024 ** 3) and __round(nbytes, 1024 ** 2, 'MB') \
+      or nbytes < (1024 ** 4) and __round(nbytes, 1024 ** 3, 'GB') \
+      or __round(nbytes, 1024 ** 4, 'TB')
+
+def __round(nbytes, divisor, suffix):
+  nbytes = float(nbytes) / divisor
+  if floor(nbytes) == nbytes:
+    return str(int(nbytes)) + ' ' + suffix
+  else:
+    return '%.2f %s' % (nbytes, suffix)
+
+def get_memory_usage():
+  global _proc_status, _units, _handle
+  try:
+    for line in _handle:
+      if line.startswith('VmSize:'):
+        label, count, unit = line.split()
+        return int(count) * _units[unit.upper()]
+  except:
+    return 0
+  finally:
+    _handle.seek(0)
+
+
 if __name__ == '__main__':
 
   if '--profile' in sys.argv:
@@ -1221,6 +1268,32 @@ if __name__ == '__main__':
     s.sort_stats('time')
     s.print_stats(0.1)
     os.unlink(profile)
+  elif '--testmem' in sys.argv:
+    """
+    Determines the current memory usage of the current process
+    by reading the VmSize value from /proc/$pid/status.
+    It's based on the following entry in the Python cookbook:
+    http://code.activestate.com/recipes/286222/
+    """
+    _units = { 'KB': 1024, 'MB': 1024**2, 'GB': 1024**3 }
+    _handle = _handle = open('/proc/%d/status' % os.getpid())
+    megabyte = 1024**2
+    counter = megabyte
+    limit = megabyte * 50
+    memory = []
+    old_memory_usage = get_memory_usage()
+    assert old_memory_usage > 0
+    while counter < limit:
+      memory.append('a' * counter)
+      msg = "I've just allocated %s and get_memory_usage() returns %s (%s more, deviation is %s)"
+      new_memory_usage = get_memory_usage()
+      difference = new_memory_usage - old_memory_usage
+      deviation = max(difference, counter) - min(difference, counter)
+      assert deviation < 1024*100
+      print msg % (format_size(counter), format_size(new_memory_usage), format_size(difference), format_size(deviation))
+      old_memory_usage = new_memory_usage
+      counter += megabyte
+    print "Stopped allocating new strings at %s" % format_size(limit)
   else:
     main()
 
