@@ -24,8 +24,8 @@ Copyright 2010 Peter Odding <peter@peterodding.com>.
 
 # Check the Python version, warn the user if untested.
 import sys
-if sys.version_info[:2] != (2, 6):
-  msg = "Warning: DedupFS has only been tested on Python 2.6, while you're running Python %d.%d!\n"
+if sys.version_info[:2] <= (2, 6):
+  msg = "Warning: DedupFS has only been tested on Python 2.6 and later, while you're running Python %d.%d!\n"
   sys.stderr.write(msg % (sys.version_info[0], sys.version_info[1]))
 
 # Try to load the required modules from Python's standard library.
