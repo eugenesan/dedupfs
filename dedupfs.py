@@ -9,7 +9,7 @@ which enables it to store virtually unlimited copies of files because data
 is only stored once.
 
 In addition to deduplication the file system also supports transparent
-compression using any of the compression methods snappy, lzo, zlib and bz2.
+compression using any of the compression methods snappy, lzo, lzma, zlib and bz2.
 
 These two properties make the file system ideal for backups: I'm currently
 storing 250 GB worth of backups using only 8 GB of disk space.
@@ -165,7 +165,7 @@ class DedupFS(fuse.Fuse): # {{{1
       def noop(s): return s
       self.compressors = { 'none': (noop, noop) }
       compression_methods = ['none']
-      for modname in 'snappy', 'lzo', 'zlib', 'bz2':
+      for modname in 'snappy', 'lzma', 'lzo', 'zlib', 'bz2':
         try:
           module = __import__(modname)
           if hasattr(module, 'compress') and hasattr(module, 'decompress'):
